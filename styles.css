@@ -835,3 +835,59 @@ pre.json-view {
 .guide-item.purple {
   border-left-color: #a855f7;
 }
+
+/* ==========================================================================
+   과제 5: 태풍 시각화 & 멀티 LLM 브리핑 스타일
+   ========================================================================== */
+.map-typhoon-track {
+  stroke: #0284c7;
+  stroke-width: 2.2;
+  stroke-dasharray: 4, 3;
+  fill: none;
+  opacity: 0.85;
+}
+
+.map-typhoon-impact {
+  fill: rgba(2, 132, 199, 0.18);
+  stroke: #38bdf8;
+  stroke-width: 1.5;
+  stroke-dasharray: 3, 2;
+}
+
+.typhoon-symbol-wrap {
+  cursor: pointer;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
+}
+
+.typhoon-spiral {
+  animation: typhoon-spin 6s linear infinite;
+  transform-origin: 0 0;
+}
+
+@keyframes typhoon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+.test-res-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.test-res-pass {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+}
+
+.test-res-fail {
+  background: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.5);
+}
+

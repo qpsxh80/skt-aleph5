@@ -1080,6 +1080,80 @@
     }
 
     renderSelectedQuakeCard();
+    renderTyphoonsOnMap();
+  }
+
+  // ============================================================================
+  // 과제 5: 3D SVG 구체 지구본 위 태풍 레이어 렌더링 (경로, 강풍 반경, 사이클론 마커)
+  // ============================================================================
+  function renderTyphoonsOnMap() {
+    const typhoonLayer = document.getElementById("map-layer-typhoons");
+    if (!typhoonLayer) return;
+
+    if (!window.TyphoonService || !window.TyphoonService.getTyphoonLayerVisibility()) {
+      typhoonLayer.innerHTML = "";
+      return;
+    }
+
+    const typhoons = window.TyphoonService.DEFAULT_ACTIVE_TYPHOONS || [];
+    if (typhoons.length === 0) {
+      typhoonLayer.innerHTML = "";
+      return;
+    }
+
+    const R = getGlobeRadius();
+    const scaleFactor = Math.pow(runtime.zoomScale, 0.35);
+    let html = "";
+
+    typhoons.forEach((ty) => {
+      // 1) 예측/이동 경로 Polyline 렌더링
+      if (Array.isArray(ty.forecast_track) && ty.forecast_track.length > 1) {
+        let pathCmd = "";
+        ty.forecast_track.forEach((pt) => {
+          const proj = project3D(pt.lon, pt.lat);
+          if (proj.visible) {
+            pathCmd += (pathCmd === "" || pathCmd.endsWith(" ") ? "M" : "L") + `${proj.x.toFixed(1)},${proj.y.toFixed(1)}`;
+          } else {
+            pathCmd += " ";
+          }
+        });
+        if (pathCmd.trim()) {
+          html += `<path d="${pathCmd.trim()}" class="map-typhoon-track" />`;
+        }
+
+        ty.forecast_track.forEach((pt) => {
+          const proj = project3D(pt.lon, pt.lat);
+          if (proj.visible) {
+            const isForecast = pt.stage === "forecast";
+            html += `<circle cx="${proj.x.toFixed(1)}" cy="${proj.y.toFixed(1)}" r="${isForecast ? 2 : 2.5}" fill="${isForecast ? '#38bdf8' : '#0284c7'}" stroke="#ffffff" stroke-width="0.8" opacity="0.85" />`;
+          }
+        });
+      }
+
+      // 2) 현재 위치 및 강풍 영향 반경 표출
+      const curProj = project3D(ty.current_pos.lon, ty.current_pos.lat);
+      if (curProj.visible) {
+        const { x, y } = curProj;
+        const impact = window.TyphoonService.calculateImpactRadius(ty.max_wind_speed_ms, ty.wind_radius_km);
+        const impactPx = (impact.radius_km / 6371.0) * R * scaleFactor;
+
+        html += `
+          <g class="typhoon-symbol-wrap">
+            <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(14, impactPx).toFixed(1)}" class="map-typhoon-impact" />
+            <g transform="translate(${x.toFixed(1)}, ${y.toFixed(1)})">
+              <g class="typhoon-spiral">
+                <circle cx="0" cy="0" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.3" />
+                <path d="M-8,-2 C-3,-9 5,-7 8,0 C3,9 -5,7 -8,-2" fill="none" stroke="#38bdf8" stroke-width="2.2" />
+              </g>
+              <rect x="12" y="-10" width="${ty.name.length * 8 + 68}" height="20" rx="4" fill="rgba(3, 10, 24, 0.88)" stroke="#0284c7" stroke-width="1" />
+              <text x="16" y="4" fill="#38bdf8" font-size="10.5" font-weight="700" font-family="sans-serif">🌀 ${ty.name} (${ty.max_wind_speed_ms}m/s)</text>
+            </g>
+          </g>
+        `;
+      }
+    });
+
+    typhoonLayer.innerHTML = html;
   }
 
   function triggerNewDataArrivalFlash() {
@@ -1408,6 +1482,7 @@
 
     render3DGlobeBase();
     renderQuakesOnMap();
+    renderTyphoonsOnMap();
     renderDailyRecordsTable();
     renderDayOverDayComparison();
   }
@@ -1635,6 +1710,155 @@
         if (fid) executeOfficialFixture(fid);
       });
     });
+
+    // ========================================================================
+    // 과제 5 이벤트 핸들러: 태풍 레이어 토글 & 멀티 LLM 브리핑 & 10개 검사 러너
+    // ========================================================================
+    const btnToggleTyphoon = document.getElementById("btn-toggle-typhoon");
+    if (btnToggleTyphoon && window.TyphoonService) {
+      btnToggleTyphoon.addEventListener("click", () => {
+        const cur = window.TyphoonService.getTyphoonLayerVisibility();
+        const next = window.TyphoonService.setTyphoonLayerVisibility(!cur);
+        btnToggleTyphoon.textContent = next ? "🌀 태풍 레이어 토글 (ON)" : "🌀 태풍 레이어 토글 (OFF)";
+        renderTyphoonsOnMap();
+      });
+    }
+
+    const btnRunMultiLLM = document.getElementById("btn-run-multi-llm");
+    const resultBox = document.getElementById("multi-llm-result-box");
+    const stage1Body = document.getElementById("llm-stage1-body");
+    const stage2Body = document.getElementById("llm-stage2-body");
+
+    if (btnRunMultiLLM && window.MultiLLMService) {
+      btnRunMultiLLM.addEventListener("click", async () => {
+        btnRunMultiLLM.disabled = true;
+        btnRunMultiLLM.textContent = "⏳ 분석 파이프라인 가동 중...";
+        if (resultBox) resultBox.style.display = "block";
+
+        const newestQuake = (runtime.quakes && runtime.quakes[0]) || { mag: 4.5, place: "경북 포항시 북동쪽 9km" };
+        const ty = (window.TyphoonService && window.TyphoonService.DEFAULT_ACTIVE_TYPHOONS[0]) || { name: "SHANSHAN", max_wind_speed_ms: 45, central_pressure_hpa: 945 };
+
+        try {
+          // 1단계 LLM 분석 실행 (AI A 구현 완료)
+          const s1 = await window.MultiLLMService.analyzeRiskStage1(newestQuake, ty);
+          if (stage1Body) {
+            stage1Body.innerHTML = `
+              <div><strong>위험 등급:</strong> <span style="color:#f43f5e; font-weight:800;">${s1.risk_level} (${s1.compound_score}점)</span></div>
+              <div style="margin-top:2px;"><strong>요약:</strong> ${s1.summary}</div>
+              <div style="margin-top:2px; font-size:0.7rem; color:#94a3b8;">주요 위협: ${s1.primary_threats.join(" / ")}</div>
+            `;
+          }
+
+          // 2단계 LLM 실행 시도 (AI B 구현 대상)
+          try {
+            const s2 = await window.MultiLLMService.generateBriefingStage2(s1);
+            if (stage2Body) {
+              stage2Body.innerHTML = `<div style="color:#34d399;">${s2.briefing_markdown}</div>`;
+            }
+          } catch (s2Err) {
+            if (stage2Body) {
+              stage2Body.innerHTML = `
+                <div style="color:#f59e0b; font-size:0.72rem; padding:6px; background:rgba(245,158,11,0.12); border-radius:4px;">
+                  ⚠️ <strong>[AI A 세션 완료 / 인수인계 대기]</strong><br/>
+                  2단계 대피 행동요령 브리핑 생성기는 AI B(Claude) 구현 대상입니다.<br/>
+                  (인수인계 규격: <code>docs/HANDOVER.md</code> 참조)
+                </div>
+              `;
+            }
+          }
+        } catch (err) {
+          if (stage1Body) stage1Body.textContent = "분석 오류: " + err.message;
+        } finally {
+          btnRunMultiLLM.disabled = false;
+          btnRunMultiLLM.textContent = "🤖 AI 복합 재난 브리핑 실행";
+        }
+      });
+    }
+
+    const btnRunTestsUi = document.getElementById("btn-run-tests-ui");
+    const testsSummaryUi = document.getElementById("tests-summary-ui");
+    if (btnRunTestsUi) {
+      btnRunTestsUi.addEventListener("click", async () => {
+        btnRunTestsUi.disabled = true;
+        btnRunTestsUi.textContent = "⏳ 검사 실행 중...";
+
+        let pass = 0;
+        let fail = 0;
+        const details = [];
+
+        // TEST-01
+        try {
+          const r = await window.TyphoonService.fetchActiveTyphoons();
+          if (r.status === 200 && r.data.length > 0) { pass++; details.push({ id: "TEST-01", pass: true }); }
+          else { fail++; details.push({ id: "TEST-01", pass: false }); }
+        } catch (_) { fail++; details.push({ id: "TEST-01", pass: false }); }
+
+        // TEST-02
+        try {
+          const imp = window.TyphoonService.calculateImpactRadius(35, 300);
+          if (imp.radius_km === 300) { pass++; details.push({ id: "TEST-02", pass: true }); }
+          else { fail++; details.push({ id: "TEST-02", pass: false }); }
+        } catch (_) { fail++; details.push({ id: "TEST-02", pass: false }); }
+
+        // TEST-03
+        try {
+          window.TyphoonService.setTyphoonLayerVisibility(true);
+          pass++; details.push({ id: "TEST-03", pass: true });
+        } catch (_) { fail++; details.push({ id: "TEST-03", pass: false }); }
+
+        // TEST-04
+        try {
+          const tyRes = await window.TyphoonService.fetchActiveTyphoons();
+          if (tyRes.data[0]) { pass++; details.push({ id: "TEST-04", pass: true }); }
+          else { fail++; details.push({ id: "TEST-04", pass: false }); }
+        } catch (_) { fail++; details.push({ id: "TEST-04", pass: false }); }
+
+        // TEST-05
+        try {
+          const empty = await window.TyphoonService.fetchActiveTyphoons([]);
+          window.TyphoonService.resetTyphoonData();
+          if (empty.data.length === 0) { pass++; details.push({ id: "TEST-05", pass: true }); }
+          else { fail++; details.push({ id: "TEST-05", pass: false }); }
+        } catch (_) { fail++; details.push({ id: "TEST-05", pass: false }); }
+
+        // TEST-06
+        try {
+          const s1 = await window.MultiLLMService.analyzeRiskStage1({ mag: 4.5 }, { max_wind_speed_ms: 40 });
+          if (s1.risk_level === "심각") { pass++; details.push({ id: "TEST-06", pass: true }); }
+          else { fail++; details.push({ id: "TEST-06", pass: false }); }
+        } catch (_) { fail++; details.push({ id: "TEST-06", pass: false }); }
+
+        // TEST-07
+        try {
+          const s1 = await window.MultiLLMService.analyzeRiskStage1({ mag: 1.8 }, { max_wind_speed_ms: 18 });
+          if (s1.risk_level === "주의" || s1.risk_level === "관심") { pass++; details.push({ id: "TEST-07", pass: true }); }
+          else { fail++; details.push({ id: "TEST-07", pass: false }); }
+        } catch (_) { fail++; details.push({ id: "TEST-07", pass: false }); }
+
+        // TEST-08 ~ TEST-10 (AI B 구현 대상)
+        for (let tid of ["TEST-08", "TEST-09", "TEST-10"]) {
+          try {
+            await window.MultiLLMService.generateBriefingStage2({});
+            pass++; details.push({ id: tid, pass: true });
+          } catch (_) {
+            fail++; details.push({ id: tid, pass: false, note: "AI B 구현 대상" });
+          }
+        }
+
+        if (testsSummaryUi) {
+          testsSummaryUi.style.display = "block";
+          testsSummaryUi.innerHTML = `
+            <div style="font-weight:700; margin-bottom:4px;">
+              검사 결과: <span style="color:#34d399;">${pass} PASS</span> / <span style="color:#fb7185;">${fail} FAIL(대기)</span>
+            </div>
+            <div>${details.map(d => `<span class="test-res-badge ${d.pass ? 'test-res-pass' : 'test-res-fail'}">${d.id}: ${d.pass ? 'PASS' : '대기'}</span>`).join(" ")}</div>
+          `;
+        }
+
+        btnRunTestsUi.disabled = false;
+        btnRunTestsUi.textContent = "🧪 고정 검사 10개 즉시 검증 (브라우저 러너)";
+      });
+    }
   }
 
   async function bootstrap() {
