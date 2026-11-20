@@ -1106,45 +1106,45 @@
     let html = "";
 
     typhoons.forEach((ty) => {
-      // 1) 예측/이동 경로 Polyline 렌더링
+      // 1) 예측/이동 경로 선분 렌더링 (구체 앞면에 보이는 구간만 정밀 연결)
       if (Array.isArray(ty.forecast_track) && ty.forecast_track.length > 1) {
-        let pathCmd = "";
-        ty.forecast_track.forEach((pt) => {
-          const proj = project3D(pt.lon, pt.lat);
-          if (proj.visible) {
-            pathCmd += (pathCmd === "" || pathCmd.endsWith(" ") ? "M" : "L") + `${proj.x.toFixed(1)},${proj.y.toFixed(1)}`;
-          } else {
-            pathCmd += " ";
+        for (let i = 0; i < ty.forecast_track.length; i++) {
+          const p1 = project3D(ty.forecast_track[i].lon, ty.forecast_track[i].lat);
+          if (i > 0) {
+            const p0 = project3D(ty.forecast_track[i - 1].lon, ty.forecast_track[i - 1].lat);
+            if (p0.z > 0.05 && p1.z > 0.05) {
+              html += `<line x1="${p0.x.toFixed(1)}" y1="${p0.y.toFixed(1)}" x2="${p1.x.toFixed(1)}" y2="${p1.y.toFixed(1)}" class="map-typhoon-track" />`;
+            }
           }
-        });
-        if (pathCmd.trim()) {
-          html += `<path d="${pathCmd.trim()}" class="map-typhoon-track" />`;
+          if (p1.z > 0.05) {
+            const isForecast = ty.forecast_track[i].stage === "forecast";
+            html += `<circle cx="${p1.x.toFixed(1)}" cy="${p1.y.toFixed(1)}" r="${isForecast ? 2 : 2.5}" fill="${isForecast ? '#38bdf8' : '#0284c7'}" stroke="#ffffff" stroke-width="0.8" opacity="0.9" />`;
+          }
         }
-
-        ty.forecast_track.forEach((pt) => {
-          const proj = project3D(pt.lon, pt.lat);
-          if (proj.visible) {
-            const isForecast = pt.stage === "forecast";
-            html += `<circle cx="${proj.x.toFixed(1)}" cy="${proj.y.toFixed(1)}" r="${isForecast ? 2 : 2.5}" fill="${isForecast ? '#38bdf8' : '#0284c7'}" stroke="#ffffff" stroke-width="0.8" opacity="0.85" />`;
-          }
-        });
       }
 
-      // 2) 현재 위치 및 강풍 영향 반경 표출
+      // 2) 현재 위치 및 강풍 영향 반경 표출 (구체 앞면 z > 0.02일 때만 정밀 렌더링)
       const curProj = project3D(ty.current_pos.lon, ty.current_pos.lat);
-      if (curProj.visible) {
-        const { x, y } = curProj;
+      if (curProj.z > 0.02) {
+        const { x, y, z } = curProj;
         const impact = window.TyphoonService.calculateImpactRadius(ty.max_wind_speed_ms, ty.wind_radius_km);
-        const impactPx = (impact.radius_km / 6371.0) * R * scaleFactor;
+        const impactPx = (impact.radius_km / 6371.0) * R;
+        const surfaceTransform = getSurfaceTransform(x, y, z);
 
         html += `
           <g class="typhoon-symbol-wrap">
-            <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(14, impactPx).toFixed(1)}" class="map-typhoon-impact" />
+            <!-- 3D 구체 표면 곡률에 완벽히 밀착되는 영향권 타원 -->
+            <g transform="${surfaceTransform}" pointer-events="none">
+              <circle cx="0" cy="0" r="${Math.max(12, impactPx).toFixed(1)}" class="map-typhoon-impact" />
+            </g>
+            <!-- 중심 사이클론 아이콘 및 자체 중심 회전 (SVG 0 0 0 기준 절대 오차 없음) -->
             <g transform="translate(${x.toFixed(1)}, ${y.toFixed(1)})">
-              <g class="typhoon-spiral">
-                <circle cx="0" cy="0" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.3" />
+              <circle cx="0" cy="0" r="7" fill="#0284c7" stroke="#ffffff" stroke-width="1.3" />
+              <g>
                 <path d="M-8,-2 C-3,-9 5,-7 8,0 C3,9 -5,7 -8,-2" fill="none" stroke="#38bdf8" stroke-width="2.2" />
+                <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="-360 0 0" dur="6s" repeatCount="indefinite" />
               </g>
+              <!-- 수평 라벨 툴팁 -->
               <rect x="12" y="-10" width="${ty.name.length * 8 + 68}" height="20" rx="4" fill="rgba(3, 10, 24, 0.88)" stroke="#0284c7" stroke-width="1" />
               <text x="16" y="4" fill="#38bdf8" font-size="10.5" font-weight="700" font-family="sans-serif">🌀 ${ty.name} (${ty.max_wind_speed_ms}m/s)</text>
             </g>

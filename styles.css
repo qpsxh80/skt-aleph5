@@ -860,13 +860,8 @@ pre.json-view {
 }
 
 .typhoon-spiral {
-  animation: typhoon-spin 6s linear infinite;
-  transform-origin: 0 0;
-}
-
-@keyframes typhoon-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(-360deg); }
+  transform-box: fill-box;
+  transform-origin: center center;
 }
 
 .test-res-badge {
