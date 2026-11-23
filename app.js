@@ -545,6 +545,7 @@
     rotLat: 22,
     zoomScale: 1,
     isDraggingMap: false,
+    dragRafId: null,
     didDragMove: false,
     dragStartX: 0,
     dragStartY: 0,
@@ -1144,9 +1145,9 @@
                 <path d="M-8,-2 C-3,-9 5,-7 8,0 C3,9 -5,7 -8,-2" fill="none" stroke="#38bdf8" stroke-width="2.2" />
                 <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="-360 0 0" dur="6s" repeatCount="indefinite" />
               </g>
-              <!-- 수평 라벨 툴팁 -->
-              <rect x="12" y="-10" width="${ty.name.length * 8 + 68}" height="20" rx="4" fill="rgba(3, 10, 24, 0.88)" stroke="#0284c7" stroke-width="1" />
-              <text x="16" y="4" fill="#38bdf8" font-size="10.5" font-weight="700" font-family="sans-serif">🌀 ${ty.name} (${ty.max_wind_speed_ms}m/s)</text>
+              <!-- 수평 라벨 툴팁 (화면 우측 치우침 방지 동적 오프셋) -->
+              <rect x="${x > 580 ? -(ty.name.length * 8 + 80) : 12}" y="-10" width="${ty.name.length * 8 + 68}" height="20" rx="4" fill="rgba(3, 10, 24, 0.88)" stroke="#0284c7" stroke-width="1" />
+              <text x="${x > 580 ? -(ty.name.length * 8 + 76) : 16}" y="4" fill="#38bdf8" font-size="10.5" font-weight="700" font-family="sans-serif">🌀 ${ty.name} (${ty.max_wind_speed_ms}m/s)</text>
             </g>
           </g>
         `;
@@ -1158,6 +1159,7 @@
 
   function triggerNewDataArrivalFlash() {
     if (!runtime.quakes || !runtime.quakes.length) return;
+    if (runtime.isDraggingMap) return;
     const newest = runtime.quakes[0];
 
     // 새 지진이 지구본 뒷면에 있으면 해당 진앙지가 정면에 보이도록 지구본 자동 회전
@@ -1634,11 +1636,25 @@
         runtime.rotLon = (((runtime.rotLon - dx * sensitivity) + 180) % 360 + 360) % 360 - 180;
         runtime.rotLat = Math.max(-75, Math.min(75, runtime.rotLat + dy * sensitivity));
 
-        applyMapZoomTransform();
+        // requestAnimationFrame (rAF) 스로틀링: 1프레임(약 16ms)당 딱 1번만 모아서 렌더링
+        if (!runtime.dragRafId) {
+          runtime.dragRafId = requestAnimationFrame(() => {
+            runtime.dragRafId = null;
+            applyMapZoomTransform();
+          });
+        }
       });
 
       window.addEventListener("mouseup", () => {
-        runtime.isDraggingMap = false;
+        if (runtime.isDraggingMap) {
+          runtime.isDraggingMap = false;
+          if (runtime.dragRafId) {
+            cancelAnimationFrame(runtime.dragRafId);
+            runtime.dragRafId = null;
+          }
+          // 드래그 종료 시점 최종 정밀 렌더링 1회 보장
+          applyMapZoomTransform();
+        }
       });
 
       svgEl.addEventListener("click", () => {
