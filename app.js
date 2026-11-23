@@ -1100,6 +1100,10 @@
         if (runtime.didDragMove) return;
         const idx = Number(e.currentTarget.getAttribute("data-quake-index"));
         runtime.selectedQuakeIndex = runtime.selectedQuakeIndex === idx ? null : idx;
+        if (runtime.isTyphoonSelected) {
+          runtime.isTyphoonSelected = false;
+          renderTyphoonsOnMap();
+        }
         renderQuakesOnMap();
       });
     });
@@ -1176,6 +1180,10 @@
         e.stopPropagation();
         if (runtime.didDragMove) return;
         runtime.selectedQuakeIndex = runtime.selectedQuakeIndex === 0 ? null : 0;
+        if (runtime.isTyphoonSelected) {
+          runtime.isTyphoonSelected = false;
+          renderTyphoonsOnMap();
+        }
         renderQuakesOnMap();
       });
     }
@@ -1279,7 +1287,12 @@
     symbolWraps.forEach((wrap) => {
       wrap.addEventListener("click", (e) => {
         e.stopPropagation();
+        if (runtime.didDragMove) return;
         runtime.isTyphoonSelected = !runtime.isTyphoonSelected;
+        if (runtime.selectedQuakeIndex !== null) {
+          runtime.selectedQuakeIndex = null;
+          renderQuakesOnMap();
+        }
         renderTyphoonsOnMap();
       });
     });
@@ -1783,19 +1796,28 @@
             cancelAnimationFrame(runtime.dragRafId);
             runtime.dragRafId = null;
           }
-          // 드래그 종료 시점 최종 정밀 렌더링 1회 보장
-          applyMapZoomTransform();
+          // 실제로 드래그 이동을 했을 때만 최종 정밀 렌더링 1회 실행 (단순 클릭 시 innerHTML 재생성으로 클릭 이벤트가 증발하는 현상 방지)
+          if (runtime.didDragMove) {
+            applyMapZoomTransform();
+          }
         }
       });
 
-      svgEl.addEventListener("click", () => {
+      svgEl.addEventListener("click", (e) => {
         if (runtime.didDragMove) return;
+        // 지진 점, 최신 지진 비콘, 태풍 마커 등을 클릭한 경우 바탕 클릭 닫기 무시
+        if (e.target && e.target.closest && e.target.closest(".quake-dot-group, #latest-beacon-hit, .typhoon-symbol-wrap, .selected-quake-card, .selected-typhoon-card")) {
+          return;
+        }
+        let changed = false;
         if (runtime.selectedQuakeIndex !== null) {
           runtime.selectedQuakeIndex = null;
+          changed = true;
           renderQuakesOnMap();
         }
         if (runtime.isTyphoonSelected) {
           runtime.isTyphoonSelected = false;
+          changed = true;
           renderTyphoonsOnMap();
         }
       });
