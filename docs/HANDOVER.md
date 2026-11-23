@@ -18,10 +18,14 @@
 ---
 
 ### 2. 현재 상태 (Current State)
-- **저장소 버전 ID (Commit Hash):** `67fa81974816061181ed294b614f70fc80472bfe` (Git tag: `ai-a-handover`)
+- **저장소 버전 ID (Commit Hash):** 최신 공식 인수인계 커밋 (Git tag: `ai-a-handover`)
 - **구현 완료된 모듈:**
   - `typhoon-service.js`: 태풍 데이터 조회(`fetchActiveTyphoons`), 강풍 반경 및 대원각 지리 계산(`calculateImpactRadius`), 레이어 가시성 제어
-  - `app.js` & `index.html` & `styles.css`: 3D 구체 지도 위에 태풍 경로 및 네온 회전 사이클론 마커 표출, 드로어 내 태풍 토글 및 멀티 LLM 제어 UI 추가
+  - `app.js` & `index.html` & `styles.css`: 
+    - 3D 구체 지도 위에 태풍 경로 및 네온 회전 사이클론 마커 표출
+    - **태풍 심볼 클릭 시 3D 구체 곡면 실시간 위치 추적 및 상세 관제 정보 플로팅 미니 카드(`#selected-typhoon-card`) 표출**
+    - `requestAnimationFrame` (rAF) 기반 60fps 드래그 스로틀링 및 `mouseup` 클릭 이벤트 보존 안정화
+    - 우측 제어 드로어 내 태풍 토글 스위치 및 멀티 LLM 제어 UI 연동
   - `multi-llm-service.js`: 1단계 LLM 위험도 분석(`analyzeRiskStage1`) 알고리즘 완성
   - `tests/test-suite.js`: 공식 10대 검사 자동화 채점 러너 구축 완료
 
