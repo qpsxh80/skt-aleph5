@@ -86,19 +86,156 @@
   }
 
   /**
-   * 2단계 LLM: 맞춤 대피 행동요령 브리핑 생성 (AI B 구현 대상!)
+   * 2단계 LLM: 맞춤 대피 행동요령 브리핑 생성 (AI B 구현)
    * TEST-08: 1단계 JSON 전달 시 대피 요령/수칙 텍스트 생성
-   * TEST-09: 파이프라인 연계
-   * TEST-10: 1단계 누락/오류 시 Fallback 처리
-   * 
-   * [AI A 인수인계 안내]:
-   * AI A는 인터페이스 규격(Signature)을 선언하고 스텁(Stub) 상태로 중단합니다.
-   * AI B 세션에서 2단계 LLM 프롬프트 및 폴백 로직을 완성해야 합니다.
+   * TEST-09: 파이프라인 연계 (Stage 1 -> Stage 2)
+   * TEST-10: 1단계 누락/오류 시 예외 없이 Fallback 반환
+   *
+   * @param {Object} stage1Result analyzeRiskStage1 의 반환 객체
+   * @returns {Promise<Object>}
    */
+  const VALID_RISK_LEVELS = ["관심", "주의", "경보", "심각"];
+
+  // 등급별 기본 행동 수칙
+  const LEVEL_GUIDELINES = {
+    "심각": [
+      "즉시 대피 준비를 마치고, 지자체 대피 명령이 내려지면 지체 없이 지정 대피소로 이동하십시오.",
+      "해안가·급경사지·산사태 위험 지역 및 반지하 주택에 계신 분은 지금 바로 안전한 곳으로 이동하십시오."
+    ],
+    "경보": [
+      "대피 경로와 가까운 대피소 위치를 확인하고 비상용품(손전등, 비상식량, 상비약)을 챙기십시오.",
+      "불필요한 외출을 삼가고 재난 문자와 방송을 계속 확인하십시오."
+    ],
+    "주의": [
+      "기상 및 지진 정보를 수시로 확인하고 가족과 비상 연락 방법을 점검하십시오.",
+      "베란다 화분, 간판 등 바람에 날릴 수 있는 물건을 미리 고정하십시오."
+    ],
+    "관심": [
+      "평소 안전 점검 상태를 유지하고 기상 예보를 모니터링하십시오."
+    ]
+  };
+
+  // 위협 키워드별 맞춤 행동 수칙 (1단계 primary_threats / summary 텍스트 기반)
+  const THREAT_RULES = [
+    {
+      keywords: ["지진", "여진", "낙하물", "흔들림", "균열", "건축물"],
+      guidelines: [
+        "지진 직후이므로 엘리베이터 대신 계단을 이용해 넓은 공터로 대피하십시오.",
+        "여진에 대비해 낙하물(유리, 간판, 외벽)이 있는 건물 주변을 피하고 머리를 보호하십시오.",
+        "가스 밸브와 전기 차단기를 잠근 뒤 대피하고, 균열이 생긴 건물에는 다시 들어가지 마십시오."
+      ]
+    },
+    {
+      keywords: ["태풍", "강풍", "간판", "비산", "월파", "풍압"],
+      guidelines: [
+        "태풍 중심 통과 시까지 간판 탈락 및 비산물에 주의하여 실내 안전 지대에 머무르십시오.",
+        "창문에서 떨어져 있고, 유리창은 테이프나 젖은 신문지로 보강하십시오.",
+        "해안가·방파제·저지대 접근을 금지하고, 월파 위험 시 즉시 내륙 고지대로 이동하십시오."
+      ]
+    },
+    {
+      keywords: ["산사태", "급경사", "사면", "토사"],
+      guidelines: [
+        "산사태 위험 지역(급경사지, 옹벽 아래)에서는 즉시 벗어나 튼튼한 건물의 높은 층이나 지정 대피소로 이동하십시오.",
+        "지반이 약해진 상태이므로 비탈면에서 물이 샘솟거나 흙탕물이 나오면 바로 대피하십시오."
+      ]
+    },
+    {
+      keywords: ["침수", "호우", "범람", "해일"],
+      guidelines: [
+        "침수 우려 지역은 차량·지하 공간 이용을 중단하고 높은 곳으로 이동하십시오.",
+        "물에 잠긴 도로와 하천변은 접근하지 말고, 전기 설비는 만지지 마십시오."
+      ]
+    }
+  ];
+
+  const FALLBACK_BRIEFING = {
+    briefing_markdown: "### [안전 유의 기본 안내]\n기상 특보 및 지진 발생 시 국민행동요령을 준수하십시오.",
+    evacuation_guidelines: ["기본 안전 수칙을 준수하십시오."]
+  };
+
+  function buildFallbackStage2(reason) {
+    return {
+      stage: 2,
+      model: "Stage2-ActionAdvisor (Fallback)",
+      is_fallback: true,
+      fallback_reason: reason,
+      timestamp: new Date().toISOString(),
+      briefing_markdown: FALLBACK_BRIEFING.briefing_markdown,
+      evacuation_guidelines: FALLBACK_BRIEFING.evacuation_guidelines.slice()
+    };
+  }
+
+  /** 1단계 결과가 2단계 처리에 필요한 필수 필드를 갖췄는지 검증. 문제가 있으면 사유 문자열 반환. */
+  function validateStage1(s1) {
+    if (s1 === null || s1 === undefined) return "stage1Result 누락";
+    if (typeof s1 !== "object" || Array.isArray(s1)) return "stage1Result 형식 오류";
+    if (typeof s1.risk_level !== "string" || !VALID_RISK_LEVELS.includes(s1.risk_level)) {
+      return "risk_level 누락 또는 알 수 없는 값";
+    }
+    if (typeof s1.summary !== "string" || s1.summary.trim() === "") return "summary 누락";
+    if (!Array.isArray(s1.primary_threats) || s1.primary_threats.length === 0) {
+      return "primary_threats 누락";
+    }
+    return null;
+  }
+
   async function generateBriefingStage2(stage1Result) {
-    // AI A 세션 기준: 미구현 상태(Stub)
-    // AI B가 이 함수를 구현하여 TEST-08, TEST-09, TEST-10을 통과시켜야 합니다.
-    throw new Error("NOT_IMPLEMENTED_STAGE2: 2단계 LLM 브리핑 생성기는 AI B 구현 대상입니다. (인수인계 문서 docs/HANDOVER.md 참조)");
+    try {
+      const problem = validateStage1(stage1Result);
+      if (problem) return buildFallbackStage2(problem);
+
+      const level = stage1Result.risk_level;
+      const summary = stage1Result.summary.trim();
+      const threats = stage1Result.primary_threats.map((t) => String(t));
+      const score = Number.isFinite(Number(stage1Result.compound_score))
+        ? Number(stage1Result.compound_score)
+        : null;
+
+      // 위협 텍스트에서 해당하는 맞춤 수칙 선택 (등급 기본 수칙 + 위협별 수칙, 중복 제거)
+      const threatText = threats.join(" ");
+      const guidelines = [];
+      const pushUnique = (g) => { if (!guidelines.includes(g)) guidelines.push(g); };
+
+      for (const rule of THREAT_RULES) {
+        if (rule.keywords.some((k) => threatText.includes(k))) {
+          rule.guidelines.forEach(pushUnique);
+        }
+      }
+      LEVEL_GUIDELINES[level].forEach(pushUnique);
+
+      // 위협 키워드가 매칭되지 않은 경우에도 최소 한 개 이상의 수칙 보장
+      if (guidelines.length === 0) {
+        FALLBACK_BRIEFING.evacuation_guidelines.forEach(pushUnique);
+      }
+
+      const scoreText = score !== null ? ` (복합 위험도 ${score}점)` : "";
+      const briefingMarkdown = [
+        "### [재난 대응 긴급 브리핑]",
+        `현재 위험 등급: **${level}**${scoreText}`,
+        "",
+        `**상황 요약**: ${summary}`,
+        "",
+        "**주요 위협**",
+        ...threats.map((t) => `- ${t}`),
+        "",
+        "**대피 행동요령**",
+        ...guidelines.map((g, i) => `${i + 1}. ${g}`)
+      ].join("\n");
+
+      return {
+        stage: 2,
+        model: "Stage2-ActionAdvisor",
+        is_fallback: false,
+        timestamp: new Date().toISOString(),
+        risk_level: level,
+        briefing_markdown: briefingMarkdown,
+        evacuation_guidelines: guidelines
+      };
+    } catch (err) {
+      // 어떤 예기치 못한 오류에서도 예외를 던지지 않고 안전 수칙 반환
+      return buildFallbackStage2("처리 중 오류: " + (err && err.message ? err.message : "unknown"));
+    }
   }
 
   /**
