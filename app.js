@@ -745,6 +745,7 @@
     }
     render3DGlobeBase();
     renderQuakesOnMap();
+    renderTyphoonsOnMap();
   }
 
   function zoomMapAtPoint(newScale) {
@@ -1081,7 +1082,6 @@
     }
 
     renderSelectedQuakeCard();
-    renderTyphoonsOnMap();
   }
 
   // ============================================================================
@@ -1168,6 +1168,7 @@
       focusGlobeOnLonLat(newest.lon, newest.lat);
       render3DGlobeBase();
       renderQuakesOnMap();
+      renderTyphoonsOnMap();
     }
 
     const beaconLayer = document.getElementById("map-layer-beacon");
