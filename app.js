@@ -550,6 +550,7 @@
     dragStartX: 0,
     dragStartY: 0,
     selectedQuakeIndex: null,
+    isTyphoonSelected: false,
     autoRefreshRemainingSec: AUTO_REFRESH_INTERVAL_SEC
   };
 
@@ -802,6 +803,104 @@
 
     card.style.left = `${Math.round(left)}px`;
     card.style.top = `${Math.round(top)}px`;
+  }
+
+  function positionSelectedTyphoonCard() {
+    const card = document.getElementById("selected-typhoon-card");
+    const svgEl = document.getElementById("world-map-svg");
+    const viewportEl = document.getElementById("map-viewport");
+    if (!card || !svgEl || !viewportEl) return;
+
+    if (!runtime.isTyphoonSelected) {
+      card.style.display = "none";
+      return;
+    }
+
+    const typhoons = (window.TyphoonService && window.TyphoonService.DEFAULT_ACTIVE_TYPHOONS) || [];
+    if (typhoons.length === 0) {
+      card.style.display = "none";
+      return;
+    }
+
+    const ty = typhoons[0];
+    const proj = project3D(ty.current_pos.lon, ty.current_pos.lat);
+    if (proj.z <= 0.02) {
+      card.style.display = "none";
+      return;
+    }
+    card.style.display = "block";
+
+    const svgRect = svgEl.getBoundingClientRect();
+    const vpRect = viewportEl.getBoundingClientRect();
+
+    const dotPixelX = svgRect.left - vpRect.left + (proj.x / 1000) * svgRect.width;
+    const dotPixelY = svgRect.top - vpRect.top + (proj.y / 500) * svgRect.height;
+
+    const cardWidth = card.offsetWidth || 285;
+    const cardHeight = card.offsetHeight || 155;
+
+    let left = dotPixelX + 22;
+    let top = dotPixelY - cardHeight / 2;
+
+    if (left + cardWidth > vpRect.width - 14) {
+      left = dotPixelX - cardWidth - 22;
+    }
+    left = Math.max(12, Math.min(vpRect.width - cardWidth - 12, left));
+    top = Math.max(12, Math.min(vpRect.height - cardHeight - 12, top));
+
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top = `${Math.round(top)}px`;
+  }
+
+  function renderSelectedTyphoonCard() {
+    const card = document.getElementById("selected-typhoon-card");
+    if (!card) return;
+
+    if (!runtime.isTyphoonSelected) {
+      card.style.display = "none";
+      return;
+    }
+
+    const typhoons = (window.TyphoonService && window.TyphoonService.DEFAULT_ACTIVE_TYPHOONS) || [];
+    if (typhoons.length === 0) {
+      card.style.display = "none";
+      return;
+    }
+
+    const ty = typhoons[0];
+    const impact = window.TyphoonService ? window.TyphoonService.calculateImpactRadius(ty.max_wind_speed_ms, ty.wind_radius_km) : null;
+    const gradeBadge = document.getElementById("st-grade-badge");
+    const nameEl = document.getElementById("st-name");
+    const pressEl = document.getElementById("st-pressure");
+    const windEl = document.getElementById("st-wind");
+    const radiusEl = document.getElementById("st-radius");
+    const coordsEl = document.getElementById("st-coords");
+    const moveEl = document.getElementById("st-movement");
+    const forecastEl = document.getElementById("st-forecast");
+
+    if (gradeBadge) {
+      gradeBadge.textContent = impact && impact.intensity_grade ? impact.intensity_grade : "매우 강 (TY)";
+    }
+    if (nameEl) {
+      nameEl.textContent = `🌀 제${ty.intl_number ? ty.intl_number.slice(-2) : "25"}호 태풍 ${ty.name}`;
+    }
+    if (pressEl) pressEl.textContent = `${ty.central_pressure_hpa || 945} hPa`;
+    if (windEl) {
+      const ms = ty.max_wind_speed_ms || 45;
+      windEl.textContent = `${ms} m/s (약 ${Math.round(ms * 3.6)} km/h)`;
+    }
+    if (radiusEl) radiusEl.textContent = `반경 약 ${ty.wind_radius_km || 320} km`;
+    if (coordsEl) {
+      coordsEl.textContent = `${Number(ty.current_pos.lat).toFixed(2)}°N, ${Number(ty.current_pos.lon).toFixed(2)}°E`;
+    }
+    if (moveEl) {
+      moveEl.textContent = `북북동진 (약 18 km/h)`;
+    }
+    if (forecastEl) {
+      forecastEl.textContent = "24시간 내 규슈·서일본 방면 접근/상륙";
+    }
+
+    positionSelectedTyphoonCard();
   }
 
   /**
@@ -1093,12 +1192,14 @@
 
     if (!window.TyphoonService || !window.TyphoonService.getTyphoonLayerVisibility()) {
       typhoonLayer.innerHTML = "";
+      renderSelectedTyphoonCard();
       return;
     }
 
     const typhoons = window.TyphoonService.DEFAULT_ACTIVE_TYPHOONS || [];
     if (typhoons.length === 0) {
       typhoonLayer.innerHTML = "";
+      renderSelectedTyphoonCard();
       return;
     }
 
@@ -1131,23 +1232,40 @@
         const impact = window.TyphoonService.calculateImpactRadius(ty.max_wind_speed_ms, ty.wind_radius_km);
         const impactPx = (impact.radius_km / 6371.0) * R;
         const surfaceTransform = getSurfaceTransform(x, y, z);
+        const isSelected = !!runtime.isTyphoonSelected;
 
         html += `
-          <g class="typhoon-symbol-wrap">
+          <g class="typhoon-symbol-wrap" data-typhoon-id="${ty.id}">
             <!-- 3D 구체 표면 곡률에 완벽히 밀착되는 영향권 타원 -->
             <g transform="${surfaceTransform}" pointer-events="none">
               <circle cx="0" cy="0" r="${Math.max(12, impactPx).toFixed(1)}" class="map-typhoon-impact" />
             </g>
+            <!-- 선택 활성화 시 구 표면 밀착 회전 점선 링 -->
+            ${isSelected ? `
+            <g transform="${surfaceTransform}" pointer-events="none">
+              <circle cx="0" cy="0" r="${(Math.max(12, impactPx) * 1.04).toFixed(1)}" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="6, 4" opacity="0.95">
+                <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="10s" repeatCount="indefinite" />
+              </circle>
+            </g>
+            ` : ""}
             <!-- 중심 사이클론 아이콘 및 자체 중심 회전 (SVG 0 0 0 기준 절대 오차 없음) -->
             <g transform="translate(${x.toFixed(1)}, ${y.toFixed(1)})">
-              <circle cx="0" cy="0" r="7" fill="#0284c7" stroke="#ffffff" stroke-width="1.3" />
-              <g>
-                <path d="M-8,-2 C-3,-9 5,-7 8,0 C3,9 -5,7 -8,-2" fill="none" stroke="#38bdf8" stroke-width="2.2" />
+              <!-- 클릭 감지용 투명 타겟 영역 -->
+              <circle cx="0" cy="0" r="18" fill="rgba(56, 189, 248, 0.001)" cursor="pointer" class="typhoon-hit-circle" />
+              <circle cx="0" cy="0" r="7" fill="${isSelected ? '#0284c7' : '#0369a1'}" stroke="#ffffff" stroke-width="${isSelected ? '2' : '1.3'}" />
+              <g pointer-events="none">
+                <path d="M-8,-2 C-3,-9 5,-7 8,0 C3,9 -5,7 -8,-2" fill="none" stroke="${isSelected ? '#e0f2fe' : '#38bdf8'}" stroke-width="2.2" />
                 <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="-360 0 0" dur="6s" repeatCount="indefinite" />
               </g>
+              ${isSelected ? `
+              <circle cx="0" cy="0" r="11" fill="none" stroke="#38bdf8" stroke-width="1.8" opacity="0.8" pointer-events="none">
+                <animate attributeName="r" values="9;16;9" dur="1.8s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.9;0.2;0.9" dur="1.8s" repeatCount="indefinite" />
+              </circle>
+              ` : ""}
               <!-- 수평 라벨 툴팁 (화면 우측 치우침 방지 동적 오프셋) -->
-              <rect x="${x > 580 ? -(ty.name.length * 8 + 80) : 12}" y="-10" width="${ty.name.length * 8 + 68}" height="20" rx="4" fill="rgba(3, 10, 24, 0.88)" stroke="#0284c7" stroke-width="1" />
-              <text x="${x > 580 ? -(ty.name.length * 8 + 76) : 16}" y="4" fill="#38bdf8" font-size="10.5" font-weight="700" font-family="sans-serif">🌀 ${ty.name} (${ty.max_wind_speed_ms}m/s)</text>
+              <rect x="${x > 580 ? -(ty.name.length * 8 + 80) : 12}" y="-10" width="${ty.name.length * 8 + 68}" height="20" rx="4" fill="rgba(3, 10, 24, 0.92)" stroke="${isSelected ? '#38bdf8' : '#0284c7'}" stroke-width="${isSelected ? '1.8' : '1'}" />
+              <text x="${x > 580 ? -(ty.name.length * 8 + 76) : 16}" y="4" fill="${isSelected ? '#e0f2fe' : '#38bdf8'}" font-size="10.5" font-weight="700" font-family="sans-serif">🌀 ${ty.name} (${ty.max_wind_speed_ms}m/s)</text>
             </g>
           </g>
         `;
@@ -1155,6 +1273,18 @@
     });
 
     typhoonLayer.innerHTML = html;
+
+    // 태풍 심볼 클릭 이벤트 연결
+    const symbolWraps = typhoonLayer.querySelectorAll(".typhoon-symbol-wrap");
+    symbolWraps.forEach((wrap) => {
+      wrap.addEventListener("click", (e) => {
+        e.stopPropagation();
+        runtime.isTyphoonSelected = !runtime.isTyphoonSelected;
+        renderTyphoonsOnMap();
+      });
+    });
+
+    renderSelectedTyphoonCard();
   }
 
   function triggerNewDataArrivalFlash() {
@@ -1664,16 +1794,32 @@
           runtime.selectedQuakeIndex = null;
           renderQuakesOnMap();
         }
+        if (runtime.isTyphoonSelected) {
+          runtime.isTyphoonSelected = false;
+          renderTyphoonsOnMap();
+        }
       });
     }
 
-    window.addEventListener("resize", positionSelectedQuakeCard);
+    window.addEventListener("resize", () => {
+      positionSelectedQuakeCard();
+      positionSelectedTyphoonCard();
+    });
 
     const btnCloseSq = document.getElementById("btn-close-sq");
     if (btnCloseSq) {
       btnCloseSq.addEventListener("click", () => {
         runtime.selectedQuakeIndex = null;
         renderQuakesOnMap();
+      });
+    }
+
+    const btnCloseSt = document.getElementById("btn-close-st");
+    if (btnCloseSt) {
+      btnCloseSt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        runtime.isTyphoonSelected = false;
+        renderTyphoonsOnMap();
       });
     }
 

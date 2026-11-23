@@ -254,6 +254,24 @@
         </div>
       </div>
 
+      <!-- 클릭한 태풍 상세 정보 플로팅 미니 카드 -->
+      <div class="selected-typhoon-card" id="selected-typhoon-card" style="display: none;" aria-live="polite">
+        <div class="st-header">
+          <span class="st-badge" id="st-grade-badge">매우 강 (TY)</span>
+          <span class="st-type" id="st-type-label">활성 태풍 실시간 관제</span>
+          <button class="st-close" id="btn-close-st" type="button" title="정보 창 닫기">✕</button>
+        </div>
+        <div class="st-name" id="st-name">--</div>
+        <div class="st-meta-grid">
+          <div><span>중심 기압:</span> <strong id="st-pressure">--</strong></div>
+          <div><span>최대 풍속:</span> <strong id="st-wind">--</strong></div>
+          <div><span>강풍 반경:</span> <strong id="st-radius" style="color: #38bdf8;">--</strong></div>
+          <div><span>현재 위치:</span> <strong id="st-coords">--</strong></div>
+          <div style="grid-column: 1 / -1;"><span>진행 방향/속도:</span> <strong id="st-movement">북북동진 (약 18 km/h)</strong></div>
+          <div style="grid-column: 1 / -1; font-size: 0.71rem; color: #fde68a;"><span>예상 경로:</span> <strong id="st-forecast" style="color: #fde68a;">24시간 내 규슈·서일본 방면 접근/상륙</strong></div>
+        </div>
+      </div>
+
       <!-- 우측 하단 마우스 휠 확대/축소 컨트롤 -->
       <div class="map-zoom-controls" aria-label="지도 확대 축소 컨트롤">
         <span class="zoom-level-indicator" id="zoom-level-text" title="마우스 휠로 확대/축소, 드래그로 회전">1.0x</span>
